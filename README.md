@@ -31,6 +31,21 @@ pick the one for your OS:
 
 Building from source instead: see [BUILD.md](BUILD.md).
 
+## Running on macOS
+
+The macOS build is only ad-hoc signed (no Apple Developer ID/notarization),
+so after downloading the dmg via a browser you'll likely see
+`"suunto2subsurface.app" is damaged and can't be opened` -- this is Gatekeeper
+refusing to run an app that isn't signed by a paid Apple Developer account,
+not an actually-corrupted download. After dragging it into Applications,
+clear the quarantine flag in Terminal:
+
+```bash
+xattr -cr /Applications/suunto2subsurface.app
+```
+
+Then open it normally.
+
 ## Features
 
 - Sign in to your Suunto cloud account (app.suunto.com) through a popup
