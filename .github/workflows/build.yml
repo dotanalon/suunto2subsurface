@@ -67,6 +67,21 @@ jobs:
         # Linux has been confirmed to need it.
         run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
 
+      - name: patch vendored subsurface for Suunto JSON gas-switch/GF import fixes
+        # Upstream fix for subsurface/subsurface#4907: parse_samples() built
+        # GasSwitch events with a raw add_event() call that misused the
+        # target cylinder index as event::event()'s "value" argument (which
+        # SAMPLE_EVENT_GASCHANGE interprets as an encoded O2 percentage),
+        # leaving gas.index unset and letting validate_gaschange()'s
+        # nearest-match fallback silently attach the wrong cylinder to any
+        # gas switch past the first on multi-gas dives. Applying
+        # patches/suunto-json-gas-switch-and-gf.patch (from
+        # https://github.com/subsurface/subsurface/pull/4908, not yet
+        # merged upstream) switches to the add_gas_switch_event() helper
+        # and also teaches the importer to read gradient factors directly
+        # from the Suunto cloud API's Diving.GfLow/GfHigh JSON fields.
+        run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/suunto-json-gas-switch-and-gf.patch"
+
       - name: pre-empt subsurface/scripts/build.sh's QtLocation private-headers fetch
         # On Linux, build.sh downloads QtLocation/QtPositioning private
         # headers from upstream qt/qtlocation git tags when it can't find
@@ -127,6 +142,11 @@ jobs:
         # to need it.
         shell: pwsh
         run: git -C vendor/subsurface apply "$env:GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
+
+      - name: patch vendored subsurface for Suunto JSON gas-switch/GF import fixes
+        # See the identical step in the linux-appimage job for why.
+        shell: pwsh
+        run: git -C vendor/subsurface apply "$env:GITHUB_WORKSPACE/patches/suunto-json-gas-switch-and-gf.patch"
 
       - name: install vcpkg dependencies
         # vcpkg is preinstalled at C:\vcpkg on windows-* GitHub runners (see
@@ -197,6 +217,10 @@ jobs:
         # here too as cheap insurance, though only Linux has been confirmed
         # to need it.
         run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
+
+      - name: patch vendored subsurface for Suunto JSON gas-switch/GF import fixes
+        # See the identical step in the linux-appimage job for why.
+        run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/suunto-json-gas-switch-and-gf.patch"
 
       - name: install Qt6
         # qtpositioning and qt5compat are REQUIRED (not optional) by
