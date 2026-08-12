@@ -1,0 +1,3 @@
+[submodule "vendor/subsurface"]
+	path = vendor/subsurface
+	url = https://github.com/subsurface/subsurface.git

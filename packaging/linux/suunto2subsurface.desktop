@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=suunto2subsurface
+GenericName=Suunto dive importer
+Comment=Import Suunto cloud dives into Subsurface
+Exec=suunto2subsurface
+Icon=suunto2subsurface
+Terminal=false
+Categories=Utility;

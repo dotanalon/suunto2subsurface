@@ -1,0 +1,12 @@
+diff --git a/core/subsurface-qt/divelistnotifier.h b/core/subsurface-qt/divelistnotifier.h
+index 05d05a317..b8987b892 100644
+--- a/core/subsurface-qt/divelistnotifier.h
++++ b/core/subsurface-qt/divelistnotifier.h
+@@ -6,6 +6,7 @@
+ #define DIVELISTNOTIFIER_H
+ 
+ #include "core/dive.h"
++#include "core/divesite.h"
+ 
+ #include <QObject>
+ 

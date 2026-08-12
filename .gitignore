@@ -1,0 +1,11 @@
+build/
+vendor/subsurface/build*
+vendor/install-root/
+vendor/libdivecomputer-build/
+vendor/build-*.log
+vendor/build.log
+*.o
+*.a
+.qtc_clangd/
+CMakeCache.txt
+CMakeFiles/

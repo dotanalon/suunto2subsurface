@@ -1,0 +1,226 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'Release-[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  linux-appimage:
+    # Container base is deliberately an older LTS: linuxdeployqt refuses to
+    # run on a host with a glibc newer than the current oldest-supported
+    # Ubuntu LTS (see packaging/linux/build-appimage.sh), since that's what
+    # keeps the resulting AppImage portable to older distros too. Qt6 comes
+    # from Ubuntu 22.04's own apt packages rather than a separately
+    # installed SDK, to keep this job's dependency chain simple/consistent
+    # (see vendor/subsurface's own linux-ubuntu-20.04-qt5-appimage.yml for
+    # the Qt5 equivalent of this same tradeoff).
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    steps:
+      - name: install build dependencies
+        # libbluetooth-dev provides the "bluez" pkg-config module that
+        # vendor/subsurface's own CMakeLists.txt requires unconditionally
+        # on Linux for any non-CLI target (pkg_config_library(BLUEZ bluez
+        # REQUIRED)). qt6-declarative-dev, qt6-positioning-dev, libgl-dev,
+        # libqt6opengl6-dev, and libqt6core5compat6-dev provide Qt6Quick,
+        # Qt6Positioning, Qt6OpenGL (a Qt6Quick dependency), and
+        # Qt6Core5Compat -- all unconditionally REQUIRED by that same
+        # CMakeLists.txt's main find_package(Qt6 ...) call, none pulled in
+        # by qt6-base-dev/qt6-connectivity-dev alone.
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            autoconf automake build-essential ca-certificates cmake curl git libtool \
+            pkg-config \
+            libbluetooth-dev libgit2-dev libsqlite3-dev libusb-1.0-0-dev libxml2-dev libxslt1-dev libzip-dev \
+            qt6-base-dev qt6-connectivity-dev qt6-declarative-dev qt6-positioning-dev \
+            libqt6svg6-dev libqt6opengl6-dev qt6-tools-dev-tools libgl-dev libqt6core5compat6-dev \
+            file
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: patch vendored subsurface for an old-Qt6/GCC11 moc bug
+        # core/subsurface-qt/divelistnotifier.h forward-declares dive_site
+        # (via core/dive.h) and uses dive_site* in several signals; its
+        # generated moc code registers QMetaType for those pointer types,
+        # which requires the *complete* type at compile time. Whether that
+        # holds depends on AUTOMOC's aggregation order of moc_*.cpp files
+        # into one mocs_compilation.cpp -- and on Ubuntu 22.04's Qt 6.2.4 +
+        # GCC 11 (confirmed locally in an ubuntu:22.04 container; a newer
+        # Qt6/GCC combination on this dev machine did not hit it) that
+        # order leaves dive_site incomplete at the point it's needed,
+        # failing with "invalid application of 'sizeof' to incomplete type
+        # 'dive_site'". Applying patches/divelistnotifier-include-divesite.patch
+        # (adds a direct #include of core/divesite.h) makes the type
+        # complete unconditionally, independent of aggregation order.
+        # Applied on all 3 platforms as cheap insurance even though only
+        # Linux has been confirmed to need it.
+        run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
+
+      - name: pre-empt subsurface/scripts/build.sh's QtLocation private-headers fetch
+        # On Linux, build.sh downloads QtLocation/QtPositioning private
+        # headers from upstream qt/qtlocation git tags when it can't find
+        # them locally -- but Ubuntu 22.04's apt-packaged Qt6 (6.2.4)
+        # doesn't correspond to any tag in that repo ("v6.2.4" and
+        # "v6.2.4-lts-lgpl" both 404), so the clone fails and kills the
+        # whole build before it reaches our own code. Those headers are
+        # only used by desktop/mobile map QML packaging (grep confirms no
+        # reference anywhere in core/ or commands/), which our
+        # DownloaderExecutable build never compiles -- so just pre-create
+        # the directories build.sh checks for existence, which skips the
+        # doomed download entirely.
+        run: |
+          mkdir -p vendor/install-root/include/QtLocation/private
+          mkdir -p vendor/install-root/include/QtPositioning/private
+
+      - name: build vendored subsurface_corelib + subsurface_commands
+        working-directory: vendor
+        run: bash subsurface/scripts/build.sh -downloader -build-with-qt6
+
+      - name: configure + build suunto2subsurface
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+
+      - name: package AppImage
+        run: bash packaging/linux/build-appimage.sh "$PWD/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suunto2subsurface-linux-x86_64.AppImage
+          path: dist/*.AppImage
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install Qt6
+        # qtpositioning and qt5compat are REQUIRED (not optional) by
+        # vendor/subsurface's own CMakeLists.txt: qtpositioning by the main
+        # find_package(Qt6 ...) call, qt5compat because Qt6 builds
+        # unconditionally add Core5Compat to QT_EXTRA_COMPONENTS (see
+        # CMakeLists.txt's "for Qt6 we want the Qt5 compatibility package").
+        # Qt6Quick comes along automatically with aqtinstall's desktop
+        # essentials, but Positioning/Core5Compat do not.
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.*"
+          arch: win64_msvc2022_64
+          modules: qtconnectivity qtpositioning qt5compat
+
+      - name: patch vendored subsurface for an old-Qt6/GCC11 moc bug
+        # See the identical step in the linux-appimage job for why. Applied
+        # here too as cheap insurance, though only Linux has been confirmed
+        # to need it.
+        shell: pwsh
+        run: git -C vendor/subsurface apply "$env:GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
+
+      - name: install vcpkg dependencies
+        # vcpkg is preinstalled at C:\vcpkg on windows-* GitHub runners (see
+        # vendor/subsurface's own windows-msvc-qt6.yml, which relies on the
+        # same thing).
+        shell: pwsh
+        run: |
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          C:\vcpkg\vcpkg.exe install libgit2 libxml2 libxslt sqlite3 libzip libusb --triplet x64-windows
+
+      - name: set up MSBuild
+        # build.ps1 calls msbuild directly for libdivecomputer; it isn't on
+        # PATH by default on windows-2022 (confirmed by a real CI failure:
+        # "msbuild: The term 'msbuild' is not recognized").
+        uses: microsoft/setup-msbuild@v3
+
+      - name: set up MSVC dev environment
+        # build.ps1 also configures subsurface_corelib and this project with
+        # -G Ninja, which needs cl.exe/link.exe on PATH -- not set up by
+        # setup-msbuild alone (see vendor/subsurface's own
+        # windows-msvc-qt6.yml, which uses both actions for the same reason).
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: build
+        shell: pwsh
+        run: ./packaging/windows/build.ps1
+
+      - name: bundle Qt + package zip
+        # jurplel/install-qt-action@v4 sets QT_ROOT_DIR, not Qt6_DIR (see
+        # packaging/windows/build.ps1's own Qt6Dir handling).
+        shell: pwsh
+        run: |
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" build\suunto2subsurface.exe
+          Compress-Archive -Path build\suunto2subsurface.exe,build\*.dll -DestinationPath suunto2subsurface-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suunto2subsurface-windows-x64
+          path: suunto2subsurface-windows-x64.zip
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install Homebrew dependencies
+        # autoconf/automake/libtool are needed for subsurface/scripts/build.sh's
+        # `autoreconf --install` step (bootstrapping libdivecomputer's
+        # autotools build) -- not part of Xcode's command line tools, so
+        # they have to be installed explicitly (the Linux job gets them via
+        # apt's autoconf/automake/libtool packages already). hidapi is
+        # needed because vendor/subsurface's CMakeLists.txt unconditionally
+        # does find_library(HID_LIB HidApi) for any Darwin build (not just
+        # Bluetooth-enabled ones) -- confirmed by a real CI failure ("HID_LIB
+        # ... set to NOTFOUND"). CMake picks up Homebrew's libhidapi.dylib
+        # from /opt/homebrew automatically (vendor/subsurface's own
+        # packaging/macosx/build-deps.sh has to explicitly set
+        # CMAKE_IGNORE_PATH=/opt/homebrew to *avoid* this default behavior
+        # when it builds its own deps from source instead).
+        run: brew install autoconf automake libtool libgit2 libxml2 libxslt sqlite libzip libusb hidapi create-dmg
+
+      - name: patch vendored subsurface for an old-Qt6/GCC11 moc bug
+        # See the identical step in the linux-appimage job for why. Applied
+        # here too as cheap insurance, though only Linux has been confirmed
+        # to need it.
+        run: git -C vendor/subsurface apply "$GITHUB_WORKSPACE/patches/divelistnotifier-include-divesite.patch"
+
+      - name: install Qt6
+        # qtpositioning and qt5compat are REQUIRED (not optional) by
+        # vendor/subsurface's own CMakeLists.txt: qtpositioning by the main
+        # find_package(Qt6 ...) call -- confirmed by a real CI failure
+        # ("Failed to find required Qt component 'Positioning'"); qt5compat
+        # because Qt6 builds unconditionally add Core5Compat to
+        # QT_EXTRA_COMPONENTS -- also confirmed by a real CI failure
+        # ("Failed to find required Qt component 'Core5Compat'"). Qt6Quick
+        # comes along automatically with aqtinstall's desktop essentials,
+        # but Positioning/Core5Compat do not.
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.*"
+          modules: qtconnectivity qtpositioning qt5compat
+
+      - name: build vendored subsurface_corelib + subsurface_commands
+        working-directory: vendor
+        run: bash subsurface/scripts/build.sh -downloader -build-with-qt6
+
+      - name: package
+        run: bash packaging/macos/build.sh "$PWD/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suunto2subsurface-macos.dmg
+          path: dist/*.dmg
