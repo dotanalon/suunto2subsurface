@@ -176,3 +176,13 @@ Issues found and fixed so far, chronologically:
   trusted the env var over its own hardcoded default. Fixed by not reading
   `$env:VCPKG_ROOT` at all and hardcoding `C:\vcpkg`, the same way
   `vendor/subsurface`'s own `windows-msvc-qt6.yml` sidesteps this.
+- **windows**: with `VCPKG_ROOT` fixed, vendored subsurface_corelib itself
+  built, but our own `suunto2subsurface`/`suunto_probe` targets failed
+  compiling anything that includes `vendor/subsurface/core/units.h`/
+  `gas.h`: `error C7555: use of designated initializers requires at least
+  '/std:c++20'`. Our top-level `CMakeLists.txt` set `CMAKE_CXX_STANDARD 17`
+  while `vendor/subsurface`'s own is `20` -- GCC/Clang accept designated
+  initializers under `-std=c++17` too (as an extension), so this went
+  unnoticed on Linux/macOS; MSVC enforces the standard strictly. Fixed by
+  matching `CMAKE_CXX_STANDARD 20`, since our sources directly include
+  vendored subsurface's headers.

@@ -10,7 +10,14 @@ project(suunto2subsurface CXX)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
-set(CMAKE_CXX_STANDARD 17)
+# Must match vendor/subsurface's own CMAKE_CXX_STANDARD (20): our sources
+# directly include its headers (core/units.h, core/gas.h, ...), which use
+# C++20 designated initializers. GCC/Clang accept those under -std=c++17 too
+# (as an extension, with at most a warning), so this went unnoticed on
+# Linux/macOS -- MSVC enforces the standard strictly and hard-errors
+# ("use of designated initializers requires at least '/std:c++20'") without
+# this, confirmed by a real Windows CI failure.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 if(NOT DEFINED SUBSURFACE_SRC)
