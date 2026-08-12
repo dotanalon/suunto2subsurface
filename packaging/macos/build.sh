@@ -39,6 +39,13 @@ fi
 
 macdeployqt "$APP" -verbose=2
 
+# Ad-hoc sign (no Apple Developer ID / notarization here) so Gatekeeper
+# shows the dismissible "unidentified developer" warning instead of
+# refusing to open the app as "damaged" -- the message it shows for an
+# entirely unsigned app that's been through a browser download (which sets
+# the com.apple.quarantine xattr).
+codesign --force --deep --sign - "$APP"
+
 mkdir -p "$OUTDIR"
 create-dmg \
 	--volname "suunto2subsurface" \

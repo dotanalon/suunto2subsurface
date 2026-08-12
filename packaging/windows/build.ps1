@@ -21,13 +21,23 @@
 
 .PARAMETER BuildType
     Build type: Debug or Release. Defaults to Release.
+
+.PARAMETER SkipCorelibBuild
+    Skip building libdivecomputer and subsurface_corelib/subsurface_commands
+    and reuse whatever is already at vendor\install-root and
+    vendor\subsurface\build-downloader (e.g. restored from a CI cache keyed
+    on the vendor/subsurface submodule commit -- that output only changes
+    when the submodule is bumped or a patches/*.patch file changes, so
+    ordinary commits to this repo's own code can safely reuse it instead of
+    rebuilding both from scratch every run).
 #>
 
 param(
     [string]$VcpkgRoot = "",
     [string]$Qt6Dir = "",
     [string]$BuildType = "Release",
-    [int]$Jobs = 0
+    [int]$Jobs = 0,
+    [switch]$SkipCorelibBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,6 +74,10 @@ if ($Jobs -le 0) {
     $Jobs = if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { 4 }
 }
 $VcpkgInstalled = Join-Path $VcpkgRoot "installed\x64-windows"
+
+if ($SkipCorelibBuild) {
+    Write-Step "Skipping libdivecomputer + subsurface_corelib/subsurface_commands build (reusing cached output)"
+} else {
 
 # ---------------------------------------------------------------
 # libdivecomputer (MSVC vcxproj build, same as vendor/subsurface's own
@@ -165,6 +179,8 @@ if ($LASTEXITCODE -ne 0) { Write-Error "subsurface CMake configure failed"; exit
 cmake --build . --config $BuildType -j $Jobs
 if ($LASTEXITCODE -ne 0) { Write-Error "subsurface_corelib/commands build failed"; exit $LASTEXITCODE }
 Pop-Location
+
+}
 
 # ---------------------------------------------------------------
 # suunto2subsurface itself
